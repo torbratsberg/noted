@@ -15,17 +15,17 @@ import (
 	"golang.org/x/crypto/ssh/terminal"
 )
 
-const notesFolder = "/Users/torbratsberg/main/notes/"
+var notesFolder = os.Getenv("NOTES_DIR") + "/"
 
 type model struct {
-	fileContents string
-	readerView   viewport.Model
-	notes        []fs.DirEntry
-	listView     viewport.Model
-	pointer      int
-	ready        bool
-	glammy       glamour.TermRenderer
-	cachedFiles  map[string]string
+	note       string
+	readerView viewport.Model
+	notes      []fs.DirEntry
+	listView   viewport.Model
+	pointer    int
+	ready      bool
+	glammy     glamour.TermRenderer
+	cache      map[string]string
 }
 
 func check(err error) {
@@ -35,6 +35,20 @@ func check(err error) {
 }
 
 func (m model) Init() tea.Cmd { return nil }
+
+func (m model) OpenFile(fileName string) {
+	// Open the file in $EDITOR
+	cmd := exec.Command(
+		os.Getenv("EDITOR"),
+		notesFolder+fileName)
+
+	cmd.Stdin = os.Stdin
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+
+	err := cmd.Run()
+	check(err)
+}
 
 func (m model) RenderList() string {
 	listStr := ""
@@ -52,8 +66,8 @@ func (m model) RenderList() string {
 
 func (m model) RenderFile() string {
 	// Check if the file is cached
-	if m.cachedFiles[m.notes[m.pointer].Name()] != "" {
-		return m.cachedFiles[m.notes[m.pointer].Name()]
+	if m.cache[m.notes[m.pointer].Name()] != "" {
+		return m.cache[m.notes[m.pointer].Name()]
 	}
 
 	// Read and render the file
@@ -63,30 +77,16 @@ func (m model) RenderFile() string {
 	check(err)
 
 	// Cache the file
-	m.cachedFiles[m.notes[m.pointer].Name()] = out
+	m.cache[m.notes[m.pointer].Name()] = out
 
 	return out
 }
 
-func (m model) NewFile() {
-	// Open the file in $EDITOR
-	cmd := exec.Command(
-		os.Getenv("EDITOR"),
-		notesFolder+"my_new_note.md",
-	)
-	m.listView.SetContent(cmd.String())
-	cmd.Stdout = os.Stdout
-	cmd.Stdin = os.Stdin
-
-	err := cmd.Run()
-	check(err)
-}
-
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var (
-		cmd  tea.Cmd
-		cmds []tea.Cmd
-	)
+	// var (
+	// 	cmd  tea.Cmd
+	// 	cmds []tea.Cmd
+	// )
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -94,50 +94,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if k == "ctrl+c" || k == "q" || k == "esc" {
 			return m, tea.Quit
-		} else if k == "j" {
-			if len(m.notes)-1 > m.pointer {
-				m.pointer++
-			}
-		} else if k == "k" {
+		}
+
+		switch k {
+		case "k":
 			if m.pointer > 0 {
 				m.pointer--
 			}
-		} else if k == "d" {
+		case "j":
+			if len(m.notes)-1 > m.pointer {
+				m.pointer++
+			}
+		case "d":
 			m.readerView.HalfViewDown()
-		} else if k == "u" {
+		case "u":
 			m.readerView.HalfViewUp()
-		} else if k == "n" {
-			m.NewFile()
-
-			// } else if k == "d" {
-			// 	err := os.Remove(notesFolder + m.notes[m.pointer].Name())
-			// 	check(err)
+		case "n":
+			m.OpenFile("new_note.md")
+		case "enter":
+			m.OpenFile(m.notes[m.pointer].Name())
+			return m, tea.Quit
 		}
 
 		if k == "k" || k == "j" {
 			m.listView.SetContent(fmt.Sprintf(
-				"\n\n%s\n\n%s",
-				strings.Repeat("=", m.readerView.Width),
+				"\n\n  %s  \n\n%s",
+				strings.Repeat("=", m.readerView.Width-4),
 				m.RenderList()))
+
 			m.readerView.SetContent(m.RenderFile())
-		}
-
-		if k == "enter" {
-			cmd := exec.Command(
-				os.Getenv("EDITOR"),
-				notesFolder+m.notes[m.pointer].Name(),
-			)
-			m.listView.SetContent(cmd.String())
-			cmd.Stdout = os.Stdout
-			// cmd.Stderr = os.Stderr
-			cmd.Stdin = os.Stdin
-
-			err := cmd.Run()
-			if err != nil {
-				return m, tea.Quit
-			}
-
-			return m, tea.Quit
 		}
 
 		return m, nil
@@ -145,12 +130,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		if !m.ready {
 			m.readerView = viewport.New(msg.Width, msg.Height/4*3)
-			m.readerView.SetContent(m.fileContents)
+			m.readerView.SetContent(m.note)
 
 			m.listView = viewport.New(msg.Width, msg.Height/4)
 			m.listView.SetContent(fmt.Sprintf(
-				"\n\n%s\n\n%s",
-				strings.Repeat("=", m.readerView.Width),
+				"\n\n  %s  \n\n%s",
+				strings.Repeat("=", m.readerView.Width-4),
 				m.RenderList()))
 
 			m.ready = true
@@ -162,13 +147,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Handle keyboard and mouse events in the viewport
-	m.readerView, cmd = m.readerView.Update(msg)
-	cmds = append(cmds, cmd)
-	m.listView, cmd = m.listView.Update(msg)
-	cmds = append(cmds, cmd)
+	// // Handle keyboard and mouse events in the viewport
+	// m.readerView, cmd = m.readerView.Update(msg)
+	// cmds = append(cmds, cmd)
+	// m.listView, cmd = m.listView.Update(msg)
+	// cmds = append(cmds, cmd)
 
-	return m, tea.Batch(cmds...)
+	// return m, tea.Batch(cmds...)
+	return m, nil
 }
 
 func (m model) View() string {
@@ -179,8 +165,8 @@ func (m model) View() string {
 }
 
 func main() {
-
-	notes, err := os.ReadDir("/Users/torbratsberg/main/notes/")
+	// Read our notes folder
+	notes, err := os.ReadDir(notesFolder)
 	check(err)
 
 	// Filter out the dirs
@@ -197,37 +183,35 @@ func main() {
 	check(err)
 	glammy, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(termWidth-3),
-	)
+		glamour.WithWordWrap(termWidth-3))
 
-	// Load some text for our viewport
+	// Load the first note if there is one
 	var content string
 	if len(notes) > 0 {
 		contentBytes, err := ioutil.ReadFile(notesFolder + notes[0].Name())
-		check(err)
 		parsed, err := glammy.Render(string(contentBytes))
 		check(err)
+
 		content = parsed
 	} else {
 		parsed, err := glammy.Render(fmt.Sprintf(
-			"No notes found in %s.\nPress `n` to create a new note.\n",
-			notesFolder,
-		))
+			"# No notes found in %s.\n\nPress `n` to create a new note.\n",
+			notesFolder))
 
 		check(err)
 		content = parsed
 	}
 
+	// Initiate the program
 	p := tea.NewProgram(
 		model{
-			fileContents: string(content),
-			notes:        notes,
-			cachedFiles:  make(map[string]string, len(notes)),
-			glammy:       *glammy,
+			note:   string(content),
+			notes:  notes,
+			cache:  make(map[string]string, len(notes)),
+			glammy: *glammy,
 		},
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
-	)
+		tea.WithMouseCellMotion())
 
 	err = p.Start()
 	check(err)
