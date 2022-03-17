@@ -2,110 +2,176 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
+	"io/ioutil"
+	"log"
 	"os"
+	"os/exec"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const notesFolder = "/Users/torbratsberg/main/notes/"
+
 type model struct {
-	choices  []string         // items on the to-do list
-	cursor   int              // which to-do list item our cursor is pointing at
-	selected map[int]struct{} // which to-do items are selected
+	fileContents string
+	readerView   viewport.Model
+	notes        []fs.DirEntry
+	listView     viewport.Model
+	pointer      int
+	ready        bool
 }
 
-func initialModel() model {
-	return model{
-		// Our shopping list is a grocery list
-		choices: []string{"Buy carrots", "Buy celery", "Buy kohlrabi"},
-
-		// A map which indicates which choices are selected. We're using
-		// the  map like a mathematical set. The keys refer to the indexes
-		// of the `choices` slice, above.
-		selected: make(map[int]struct{}),
+func check(err error) {
+	if err != nil {
+		log.Fatal(err)
 	}
 }
 
-func (m model) Init() tea.Cmd {
-	// Just return `nil`, which means "no I/O right now, please."
-	return nil
+func (m model) Init() tea.Cmd { return nil }
+
+func (m model) RenderList() string {
+	listStr := ""
+
+	for i, note := range m.notes {
+		if note.IsDir() {
+			continue
+		}
+
+		if i == m.pointer {
+			listStr += fmt.Sprintf("> %s\n", note.Name())
+		} else {
+			listStr += fmt.Sprintf("  %s\n", note.Name())
+		}
+	}
+
+	return listStr
+}
+
+func (m model) RenderFile() string {
+	content, err := ioutil.ReadFile(notesFolder + m.notes[m.pointer].Name())
+	check(err)
+
+	return string(content)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var (
+		cmd  tea.Cmd
+		cmds []tea.Cmd
+	)
+
 	switch msg := msg.(type) {
-
-	// Is it a key press?
 	case tea.KeyMsg:
+		k := msg.String()
 
-		// Cool, what was the actual key pressed?
-		switch msg.String() {
-
-		// These keys should exit the program.
-		case "ctrl+c", "q":
+		if k == "ctrl+c" || k == "q" || k == "esc" {
 			return m, tea.Quit
+		} else if k == "j" {
+			if len(m.notes)-1 > m.pointer {
+				m.pointer++
+			}
+		} else if k == "k" {
+			if m.pointer > 0 {
+				m.pointer--
+			}
+		} else if k == "d" {
+			m.readerView.HalfViewDown()
+		} else if k == "u" {
+			m.readerView.HalfViewUp()
+		}
 
-			// The "up" and "k" keys move the cursor up
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
+		if k == "k" || k == "j" {
+			m.listView.SetContent("\n===\n\n" + m.RenderList())
+			m.readerView.SetContent(m.RenderFile())
+		}
+
+		if k == "enter" {
+			cmd := exec.Command(
+				os.Getenv("EDITOR"),
+				notesFolder+m.notes[m.pointer].Name(),
+			)
+			m.listView.SetContent(cmd.String())
+			cmd.Stdout = os.Stdout
+			// cmd.Stderr = os.Stderr
+			cmd.Stdin = os.Stdin
+
+			err := cmd.Run()
+			if err != nil {
+				return m, tea.Quit
 			}
 
-			// The "down" and "j" keys move the cursor down
-		case "down", "j":
-			if m.cursor < len(m.choices)-1 {
-				m.cursor++
-			}
+			// go func() {
+			// 	err := cmd.Run()
+			// 	check(err)
+			// }()
 
-			// The "enter" key and the spacebar (a literal space) toggle
-			// the selected state for the item that the cursor is pointing at.
-		case "enter", " ":
-			_, ok := m.selected[m.cursor]
-			if ok {
-				delete(m.selected, m.cursor)
-			} else {
-				m.selected[m.cursor] = struct{}{}
-			}
+			return m, tea.Quit
+		}
+
+		return m, nil
+
+	case tea.WindowSizeMsg:
+		if !m.ready {
+			m.readerView = viewport.New(msg.Width/2, msg.Height/2)
+			m.readerView.SetContent(m.fileContents)
+
+			m.listView = viewport.New(msg.Width/2, msg.Height/2)
+			m.listView.SetContent("\n===\n\n" + m.RenderList())
+
+			m.ready = true
+		} else {
+			m.listView.Width = msg.Width / 2
+			m.listView.Height = msg.Height / 2
+			m.readerView.Width = msg.Width / 2
+			m.readerView.Height = msg.Height / 2
 		}
 	}
 
-	// Return the updated model to the Bubble Tea runtime for processing.
-	// Note that we're not returning a command.
-	return m, nil
+	// Handle keyboard and mouse events in the viewport
+	m.readerView, cmd = m.readerView.Update(msg)
+	cmds = append(cmds, cmd)
+	m.listView, cmd = m.listView.Update(msg)
+	cmds = append(cmds, cmd)
+
+	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() string {
-	// The header
-	s := "What should we buy at the market?\n\n"
-
-	// Iterate over our choices
-	for i, choice := range m.choices {
-
-		// Is the cursor pointing at this choice?
-		cursor := " " // no cursor
-		if m.cursor == i {
-			cursor = ">" // cursor!
-		}
-
-		// Is this choice selected?
-		checked := " " // not selected
-		if _, ok := m.selected[i]; ok {
-			checked = "x" // selected!
-		}
-
-		// Render the row
-		s += fmt.Sprintf("%s [%s] %s\n", cursor, checked, choice)
+	if !m.ready {
+		return "\n  Initializing..."
 	}
-
-	// The footer
-	s += "\nPress q to quit.\n"
-
-	// Send the UI for rendering
-	return s
+	return fmt.Sprintf("%s%s", m.readerView.View(), m.listView.View())
 }
 
 func main() {
-	p := tea.NewProgram(initialModel())
-	if err := p.Start(); err != nil {
-		fmt.Printf("Alas, there's been an error: %v", err)
-		os.Exit(1)
+	notes, err := os.ReadDir("/Users/torbratsberg/main/notes/")
+	check(err)
+
+	// Filter out the dirs
+	n := 0
+	for _, note := range notes {
+		if !note.IsDir() {
+			notes[n] = note
+			n++
+		}
 	}
+	notes = notes[:n]
+
+	// Load some text for our viewport
+	content, err := ioutil.ReadFile(notesFolder + notes[0].Name())
+	check(err)
+
+	p := tea.NewProgram(
+		model{
+			fileContents: string(content),
+			notes:        notes,
+		},
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+	)
+
+	err = p.Start()
+	check(err)
 }
