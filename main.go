@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 )
 
 const notesFolder = "/Users/torbratsberg/main/notes/"
@@ -21,6 +22,7 @@ type model struct {
 	listView     viewport.Model
 	pointer      int
 	ready        bool
+	cachedFiles  map[string]string
 }
 
 func check(err error) {
@@ -50,10 +52,18 @@ func (m model) RenderList() string {
 }
 
 func (m model) RenderFile() string {
+	if m.cachedFiles[m.notes[m.pointer].Name()] != "" {
+		return m.cachedFiles[m.notes[m.pointer].Name()]
+	}
+
 	content, err := ioutil.ReadFile(notesFolder + m.notes[m.pointer].Name())
 	check(err)
+	out, err := glamour.Render(string(content), "dark")
+	check(err)
 
-	return string(content)
+	m.cachedFiles[m.notes[m.pointer].Name()] = out
+
+	return out
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -160,13 +170,31 @@ func main() {
 	notes = notes[:n]
 
 	// Load some text for our viewport
-	content, err := ioutil.ReadFile(notesFolder + notes[0].Name())
-	check(err)
+	var content string
+	if len(notes) > 0 {
+		contentBytes, err := ioutil.ReadFile(notesFolder + notes[0].Name())
+		check(err)
+		parsed, err := glamour.Render(string(contentBytes), "dark")
+		check(err)
+		content = parsed
+	} else {
+		parsed, err := glamour.Render(
+			fmt.Sprintf(
+				"No notes found in %s.\nPress `n` to create a new note.\n",
+				notesFolder,
+			),
+			"dark",
+		)
+
+		check(err)
+		content = parsed
+	}
 
 	p := tea.NewProgram(
 		model{
 			fileContents: string(content),
 			notes:        notes,
+			cachedFiles:  make(map[string]string, len(notes)),
 		},
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
