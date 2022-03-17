@@ -43,7 +43,6 @@ func (m model) OpenFile(fileName string) {
 		notesFolder+fileName)
 
 	cmd.Stdin = os.Stdin
-	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
 
 	err := cmd.Run()
@@ -53,6 +52,7 @@ func (m model) OpenFile(fileName string) {
 func (m model) RenderList() string {
 	listStr := ""
 
+	// Add pointer to the correct note
 	for i, note := range m.notes {
 		if i == m.pointer {
 			listStr += fmt.Sprintf("> %s\n", note.Name())
@@ -83,11 +83,6 @@ func (m model) RenderFile() string {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// var (
-	// 	cmd  tea.Cmd
-	// 	cmds []tea.Cmd
-	// )
-
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		k := msg.String()
@@ -147,13 +142,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// // Handle keyboard and mouse events in the viewport
-	// m.readerView, cmd = m.readerView.Update(msg)
-	// cmds = append(cmds, cmd)
-	// m.listView, cmd = m.listView.Update(msg)
-	// cmds = append(cmds, cmd)
-
-	// return m, tea.Batch(cmds...)
 	return m, nil
 }
 
