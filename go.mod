@@ -1,4 +1,4 @@
-module torbratsberg/noted
+module github.com/torbratsberg/noted
 
 go 1.17
 
