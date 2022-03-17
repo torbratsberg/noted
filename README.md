@@ -4,7 +4,7 @@ Notes library, with viewer and shortcuts to add, delete and edit notes.
 
 ## Installation
 
-1. `$ go install github.com/torbratsberg/noted`
+1. `$ go install github.com/torbratsberg/noted@latest`
 2. Add `export NOTES_DIR="$PATH_TO_YOUR_NOTES_DIR"` to your `.bashrc` or `.zshrc`
 3. Source your `.bashrc` or `.zshrc`
 4. `$ noted`
