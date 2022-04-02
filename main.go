@@ -36,7 +36,7 @@ func check(err error) {
 
 func (m model) Init() tea.Cmd { return nil }
 
-func (m model) OpenFile(fileName string) {
+func (m model) openFile(fileName string) {
 	// Open the file in $EDITOR
 	cmd := exec.Command(
 		os.Getenv("EDITOR"),
@@ -49,11 +49,15 @@ func (m model) OpenFile(fileName string) {
 	check(err)
 }
 
-func (m model) RenderList() string {
+func (m model) renderList() string {
 	listStr := ""
 
 	// Add pointer to the correct note
 	for i, note := range m.notes {
+		if note == nil {
+			continue
+		}
+
 		if i == m.pointer {
 			listStr += fmt.Sprintf("> %s\n", note.Name())
 		} else {
@@ -61,10 +65,13 @@ func (m model) RenderList() string {
 		}
 	}
 
-	return listStr
+	return fmt.Sprintf(
+		"\n\n  %s  \n\n%s",
+		strings.Repeat("=", m.readerView.Width-4),
+		listStr)
 }
 
-func (m model) RenderFile() string {
+func (m model) renderFile() string {
 	// Check if the file is cached
 	if m.cache[m.notes[m.pointer].Name()] != "" {
 		return m.cache[m.notes[m.pointer].Name()]
@@ -105,19 +112,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "u":
 			m.readerView.HalfViewUp()
 		case "n":
-			m.OpenFile("new_note.md")
+			m.openFile("new_note.md")
 		case "enter":
-			m.OpenFile(m.notes[m.pointer].Name())
+			m.openFile(m.notes[m.pointer].Name())
 			return m, tea.Quit
 		}
 
 		if k == "k" || k == "j" {
-			m.listView.SetContent(fmt.Sprintf(
-				"\n\n  %s  \n\n%s",
-				strings.Repeat("=", m.readerView.Width-4),
-				m.RenderList()))
+			m.listView.SetContent(m.renderList())
 
-			m.readerView.SetContent(m.RenderFile())
+			m.readerView.SetContent(m.renderFile())
 		}
 
 		return m, nil
@@ -126,12 +130,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.ready {
 			m.readerView = viewport.New(msg.Width, msg.Height/4*3)
 			m.readerView.SetContent(m.note)
-
 			m.listView = viewport.New(msg.Width, msg.Height/4)
-			m.listView.SetContent(fmt.Sprintf(
-				"\n\n  %s  \n\n%s",
-				strings.Repeat("=", m.readerView.Width-4),
-				m.RenderList()))
+			m.listView.SetContent(m.renderList())
 
 			m.ready = true
 		} else {
@@ -142,7 +142,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	return m, nil
+	return m, tea.Batch()
 }
 
 func (m model) View() string {
@@ -152,43 +152,51 @@ func (m model) View() string {
 	return fmt.Sprintf("%s%s", m.readerView.View(), m.listView.View())
 }
 
-func main() {
+func getNotes() []fs.DirEntry {
 	// Read our notes folder
 	notes, err := os.ReadDir(notesFolder)
 	check(err)
 
-	// Filter out the dirs
+	// Filter out the dirs and files that start with "."
 	n := 0
 	for _, note := range notes {
-		if !note.IsDir() {
+		if !note.IsDir() && note.Name()[0] != 46 {
 			notes[n] = note
 			n++
 		}
 	}
-	notes = notes[:n]
 
+	return notes[:n]
+}
+
+func getInitialContent(notes []fs.DirEntry) string {
+	// Load the first note if there is one
+	var content string
+	if len(notes) > 0 {
+		contentBytes, err := ioutil.ReadFile(notesFolder + notes[0].Name())
+		check(err)
+
+		content = string(contentBytes)
+	} else {
+		content = fmt.Sprintf(
+			"# No notes found in %s.\n\nPress `n` to create a new note.\n",
+			notesFolder)
+	}
+
+	return content
+}
+
+func main() {
 	termWidth, _, err := terminal.GetSize(0)
 	check(err)
 	glammy, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
 		glamour.WithWordWrap(termWidth-3))
 
-	// Load the first note if there is one
-	var content string
-	if len(notes) > 0 {
-		contentBytes, err := ioutil.ReadFile(notesFolder + notes[0].Name())
-		parsed, err := glammy.Render(string(contentBytes))
-		check(err)
+	notes := getNotes()
+	content := getInitialContent(notes)
 
-		content = parsed
-	} else {
-		parsed, err := glammy.Render(fmt.Sprintf(
-			"# No notes found in %s.\n\nPress `n` to create a new note.\n",
-			notesFolder))
-
-		check(err)
-		content = parsed
-	}
+	content, err = glammy.Render(content)
 
 	// Initiate the program
 	p := tea.NewProgram(
