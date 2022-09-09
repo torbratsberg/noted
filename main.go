@@ -67,7 +67,7 @@ func (m model) renderList() string {
 
 	return fmt.Sprintf(
 		"\n\n  %s  \n\n%s",
-		strings.Repeat("=", m.readerView.Width-4),
+		strings.Repeat(" ", m.readerView.Width-4),
 		listStr)
 }
 
@@ -102,10 +102,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "k":
 			if m.pointer > 0 {
 				m.pointer--
+				m.listView.LineUp(1)
 			}
 		case "j":
 			if len(m.notes)-1 > m.pointer {
 				m.pointer++
+				m.listView.LineDown(1)
 			}
 		case "d":
 			m.readerView.HalfViewDown()
@@ -128,17 +130,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		if !m.ready {
-			m.readerView = viewport.New(msg.Width, msg.Height/4*3)
+			m.readerView = viewport.New(msg.Width, msg.Height/5*4)
 			m.readerView.SetContent(m.note)
-			m.listView = viewport.New(msg.Width, msg.Height/4)
+			m.listView = viewport.New(msg.Width, msg.Height/5)
 			m.listView.SetContent(m.renderList())
 
 			m.ready = true
 		} else {
 			m.listView.Width = msg.Width
-			m.listView.Height = msg.Height / 4
+			m.listView.Height = msg.Height / 5
 			m.readerView.Width = msg.Width
-			m.readerView.Height = msg.Height / 4 * 3
+			m.readerView.Height = msg.Height / 5 * 4
 		}
 	}
 
@@ -182,6 +184,8 @@ func getInitialContent(notes []fs.DirEntry) string {
 			"# No notes found in %s.\n\nPress `n` to create a new note.\n",
 			notesFolder)
 	}
+
+	content += "\n"
 
 	return content
 }
