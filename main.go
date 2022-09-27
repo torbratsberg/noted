@@ -38,9 +38,13 @@ func (m model) Init() tea.Cmd { return nil }
 
 func (m model) openFile(fileName string) {
 	// Open the file in $EDITOR
+	editor := strings.Split(os.Getenv("EDITOR"), " ")
+
+	editor = append(editor, notesFolder+fileName)
+
 	cmd := exec.Command(
-		os.Getenv("EDITOR"),
-		notesFolder+fileName)
+		editor[0],
+		editor[1:]...)
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
