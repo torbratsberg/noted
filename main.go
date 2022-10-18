@@ -41,10 +41,11 @@ func (m model) openFile(fileName string) {
 	editor := strings.Split(os.Getenv("EDITOR"), " ")
 
 	editor = append(editor, notesFolder+fileName)
+	args := editor[1:]
 
 	cmd := exec.Command(
 		editor[0],
-		editor[1:]...)
+		args...)
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
